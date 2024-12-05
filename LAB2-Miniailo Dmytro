@@ -1,0 +1,171 @@
+﻿using static System.Net.Mime.MediaTypeNames;
+using System;
+using System.Data.Common;
+using System.Security.Cryptography;
+
+import os
+import hashlib
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+from Crypto.Signature import pkcs1_15
+from Crypto.Hash import SHA256
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+# AES Functions
+def generate_aes_key_iv():
+    key = get_random_bytes(32)  # AES-256
+    iv = get_random_bytes(16)  # Initialization Vector
+    return key, iv
+
+def aes_encrypt(input_file, output_file, key, iv):
+    cipher = AES.new (key, AES.MODE_CBC, iv)
+    with open(input_file, 'rb') as f:
+        data = f.read()
+    # Padding data to block size
+    pad_length = 16 - len(data) % 16
+    data += bytes([pad_length]) *pad_length
+    ciphertext = cipher.encrypt(data)
+
+    # Generate MAC
+    mac = hashlib.sha256(ciphertext).digest()
+
+    with open(output_file, 'wb') as f:
+        f.write(iv + mac + ciphertext)
+
+def aes_decrypt(input_file, output_file, key):
+    with open(input_file, 'rb') as f:
+        iv = f.read(16)
+        mac = f.read(32)
+        ciphertext = f.read()
+
+    # Verify MAC
+    if hashlib.sha256(ciphertext).digest() != mac:
+        raise ValueError("MAC verification failed!")
+
+    cipher = AES.new (key, AES.MODE_CBC, iv)
+    data = cipher.decrypt(ciphertext)
+
+    # Remove padding
+    pad_length = data[-1]
+    data = data[:-pad_length]
+
+    with open(output_file, 'wb') as f:
+        f.write(data)
+
+# RSA Functions
+def generate_rsa_keys():
+    key = RSA.generate(2048)
+    private_key = key.export_key()
+    public_key = key.publickey().export_key()
+    return private_key, public_key
+
+def rsa_encrypt(input_file, output_file, public_key):
+    with open(input_file, 'rb') as f:
+        data = f.read()
+
+    key = RSA.import_key(public_key)
+    cipher = PKCS1_OAEP.new(key)
+    ciphertext = cipher.encrypt(data)
+
+    with open(output_file, 'wb') as f:
+        f.write(ciphertext)
+
+def rsa_decrypt(input_file, output_file, private_key):
+    with open(input_file, 'rb') as f:
+        ciphertext = f.read()
+
+    key = RSA.import_key(private_key)
+    cipher = PKCS1_OAEP.new(key)
+    data = cipher.decrypt(ciphertext)
+
+    with open(output_file, 'wb') as f:
+        f.write(data)
+
+def rsa_sign(input_file, signature_file, private_key):
+    with open(input_file, 'rb') as f:
+        data = f.read()
+
+    key = RSA.import_key(private_key)
+    h = SHA256.new(data)
+    signature = pkcs1_15.new(key).sign(h)
+
+    with open(signature_file, 'wb') as f:
+        f.write(signature)
+
+def rsa_verify(input_file, signature_file, public_key):
+    with open(input_file, 'rb') as f:
+        data = f.read()
+
+    with open(signature_file, 'rb') as f:
+        signature = f.read()
+
+    key = RSA.import_key(public_key)
+    h = SHA256.new(data)
+    try:
+        pkcs1_15.new(key).verify(h, signature)
+        return True
+    except(ValueError, TypeError):
+        return False
+
+# GUI Application
+def select_file(entry):
+    filename = filedialog.askopenfilename()
+    entry.delete(0, tk.END)
+    entry.insert(0, filename)
+
+def save_file(entry):
+    filename = filedialog.asksaveasfilename()
+    entry.delete(0, tk.END)
+    entry.insert(0, filename)
+
+def run_aes_encrypt():
+    try:
+        input_file = input_entry.get()
+        output_file = output_entry.get()
+        key, iv = generate_aes_key_iv()
+        aes_encrypt(input_file, output_file, key, iv)
+        with open("aes_key.bin", 'wb') as f:
+            f.write(key)
+        messagebox.showinfo("Success", "File encrypted successfully! Key saved to aes_key.bin.")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+def run_aes_decrypt():
+    try:
+        input_file = input_entry.get()
+        output_file = output_entry.get()
+        with open("aes_key.bin", 'rb') as f:
+            key = f.read()
+        aes_decrypt(input_file, output_file, key)
+        messagebox.showinfo("Success", "File decrypted successfully!")
+    except Exception as e:
+        messagebox.showerror("Error", str(e))
+
+# Tkinter GUI setup
+root = tk.Tk()
+root.title("Encryption Application")
+
+frame = tk.Frame(root)
+frame.pack(pady = 10, padx = 10)
+
+tk.Label(frame, text = "Input File:").grid(row = 0, column = 0, sticky = "e")
+input_entry = tk.Entry(frame, width = 40)
+input_entry.grid(row = 0, column = 1)
+input_browse = tk.Button(frame, text = "Browse", command = lambda: select_file(input_entry))
+input_browse.grid(row = 0, column = 2)
+
+tk.Label(frame, text = "Output File:").grid(row = 1, column = 0, sticky = "e")
+output_entry = tk.Entry(frame, width = 40)
+output_entry.grid(row = 1, column = 1)
+output_browse = tk.Button(frame, text = "Save As", command = lambda: save_file(output_entry))
+output_browse.grid(row = 1, column = 2)
+
+encrypt_button = tk.Button(root, text = "AES Encrypt", command = run_aes_encrypt)
+encrypt_button.pack(pady = 5)
+
+decrypt_button = tk.Button(root, text = "AES Decrypt", command = run_aes_decrypt)
+decrypt_button.pack(pady = 5)
+
+root.mainloop()
